@@ -1,31 +1,42 @@
 -- with statement
+with
 -- import CTEs
+orders as (
+
+    select * from {{ source('jaffle_shop', 'orders') }}
+
+),
+
+customers as (
+    
+    select * from {{ source('jaffle_shop', 'customers') }}
+
+),
+
+payments as (
+    
+    select * from {{ source('stripe', 'payment') }}
+
+),
+
 -- logical CTEs
--- final CTE
--- simple select statement
 
-select 
-    orders.id as order_id,
-    orders.user_id as customer_id,
-    last_name as surname,
-    first_name as givenname,
-    first_order_date,
-    order_count,
-    total_lifetime_value,
-    round(amount/100.0,2) as order_value_dollars,
-    orders.status as order_status,
-    payments.status as payment_status
-from raw.jaffle_shop.orders as orders
+a as (
 
-join (
+      select 
+        row_number() over (partition by user_id order by order_date, id) as user_order_seq,
+        *
+      from orders
+), 
+
+b as ( 
       select 
         first_name || ' ' || last_name as name, 
         * 
-      from raw.jaffle_shop.customers
-) customers
-on orders.user_id = customers.id
+      from customers
+),
 
-join (
+customer_order_history as (
 
     select 
         b.id as customer_id,
@@ -41,32 +52,49 @@ join (
         sum(case when a.status NOT IN ('returned','return_pending') then ROUND(c.amount/100.0,2) else 0 end)/NULLIF(count(case when a.status NOT IN ('returned','return_pending') then 1 end),0) as avg_non_returned_order_value,
         array_agg(distinct a.id) as order_ids
 
-    from (
-      select 
-        row_number() over (partition by user_id order by order_date, id) as user_order_seq,
-        *
-      from raw.jaffle_shop.orders
-    ) a
+    from a
 
-    join ( 
-      select 
-        first_name || ' ' || last_name as name, 
-        * 
-      from raw.jaffle_shop.customers
-    ) b
+    join b
     on a.user_id = b.id
 
-    left outer join raw.stripe.payment c
+    left outer join payments as c
     on a.id = c.orderid
 
     where a.status NOT IN ('pending') and c.status != 'fail'
 
     group by b.id, b.name, b.last_name, b.first_name
 
-) customer_order_history
-on orders.user_id = customer_order_history.customer_id
+),
 
-left outer join raw.stripe.payment payments
-on orders.id = payments.orderid
+-- final CTE
 
-where payments.status != 'fail'
+final as (
+    select 
+        orders.id as order_id,
+        orders.user_id as customer_id,
+        last_name as surname,
+        first_name as givenname,
+        first_order_date,
+        order_count,
+        total_lifetime_value,
+        round(amount/100.0,2) as order_value_dollars,
+        orders.status as order_status,
+        payments.status as payment_status
+    from orders
+
+    join customers
+    on orders.user_id = customers.id
+
+    join customer_order_history
+    on orders.user_id = customer_order_history.customer_id
+
+    left outer join payments
+    on orders.id = payments.orderid
+
+    where payments.status != 'fail'
+
+)
+
+-- simple select statement
+
+select * from final
