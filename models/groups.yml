@@ -1,0 +1,10 @@
+version: 2
+
+groups:
+  - name: finance
+    owner: 
+      name: finance_dep
+  - name: product
+    owner: 
+      name: operations
+      

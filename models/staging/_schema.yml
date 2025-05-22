@@ -23,6 +23,11 @@ models:
         tests:
           - not_null
           - unique
+      - name: order_total
+        tests:
+          - assert_dollars_spent_are_greater_than_threshold:
+              group_by_column: customer_id
+              threshold: 1
   - name: stg_products
     columns:
       - name: product_id
